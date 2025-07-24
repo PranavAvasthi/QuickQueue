@@ -3,6 +3,7 @@ import http from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import { PORT } from "./config/env";
+import { connectDatabase } from "./config/database";
 import { socketHandler } from "./socket";
 
 const app = express();
@@ -20,6 +21,19 @@ app.get("/", (_req, res) => {
 
 socketHandler(io);
 
-server.listen(PORT, () => {
-  console.log(`✅ Server listening on port ${PORT}`);
-});
+const startServer = async () => {
+  try {
+    await connectDatabase();
+
+    server.listen(PORT, () => {
+      console.log(`Server listening on port ${PORT}`);
+      console.log(`Socket.IO ready for connections`);
+      console.log(`MongoDB connected`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
