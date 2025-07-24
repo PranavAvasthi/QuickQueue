@@ -1,170 +1,143 @@
 import { Server, Socket } from "socket.io";
 import { v4 as uuidv4 } from "uuid";
-import { Message as MessageType } from "../types/message";
-import { Message } from "../models/Message";
-import { User } from "../models/User";
+import { Message } from "../types/message";
+
+const messageBuffer: Message[] = [];
+const users = new Map<string, string>(); // socketId -> username
+const MAX_MESSAGES = 20;
+
+/**
+ * Add message to buffer and maintain size limit
+ */
+const addMessageToBuffer = (message: Message): void => {
+  messageBuffer.push(message);
+
+  // Keep only last 20 messages
+  if (messageBuffer.length > MAX_MESSAGES) {
+    messageBuffer.shift(); // Remove oldest message
+  }
+};
+
+/**
+ * Get all online users
+ */
+const getOnlineUsers = (): string[] => {
+  return Array.from(users.values());
+};
 
 export const socketHandler = (io: Server) => {
   io.on("connection", (socket: Socket) => {
     console.log(`New client connected: ${socket.id}`);
 
-    socket.on("join", async (username: string) => {
-      if (!username?.trim()) return;
+    // Handle user joining the chat
+    socket.on("join", (username: string) => {
+      // Validate username
+      if (
+        !username?.trim() ||
+        username.trim().length < 2 ||
+        username.trim().length > 30
+      ) {
+        socket.emit("error", "Invalid username. Must be 2-30 characters.");
+        return;
+      }
 
-      try {
-        socket.data.username = username;
+      const trimmedUsername = username.trim();
 
-        // Create or update user in database
-        await User.findOneAndUpdate(
-          { socketId: socket.id },
-          {
-            username: username.trim(),
-            socketId: socket.id,
-            isOnline: true,
-            lastSeen: new Date(),
-            joinedAt: new Date(),
-          },
-          { upsert: true, new: true }
-        );
+      // Store user info
+      socket.data.username = trimmedUsername;
+      users.set(socket.id, trimmedUsername);
 
-        console.log(`${username} joined the chat`);
+      console.log(`${trimmedUsername} joined the chat`);
 
-        // Send message history to new user (last 20 messages)
-        const messages = await Message.find()
-          .sort({ timestamp: -1 })
-          .limit(20)
-          .exec();
+      // Send message history to new user (last 20 messages from memory)
+      socket.emit("message_history", messageBuffer);
 
-        // Convert to frontend format and reverse for chronological order
-        const messageHistory = messages.reverse().map((msg) => ({
-          id: msg.id,
-          username: msg.username,
-          text: msg.text,
-          timestamp: msg.timestamp,
-        }));
+      // Create and broadcast join message
+      const joinMessage: Message = {
+        id: uuidv4(),
+        username: "System",
+        text: `${trimmedUsername} joined the chat`,
+        timestamp: Date.now(),
+      };
 
-        socket.emit("message_history", messageHistory);
+      addMessageToBuffer(joinMessage);
+      io.emit("new_message", joinMessage);
 
-        // Create and save join message
-        const joinMessage = new Message({
+      // Send updated user list to all clients
+      io.emit("user_list", getOnlineUsers());
+    });
+
+    // Handle new messages
+    socket.on("message", (text: string) => {
+      const username = socket.data.username;
+
+      if (!username) {
+        socket.emit("error", "You must join the chat first");
+        return;
+      }
+
+      // Validate message
+      if (!text?.trim() || text.trim().length === 0) {
+        socket.emit("error", "Message cannot be empty");
+        return;
+      }
+
+      if (text.trim().length > 1000) {
+        socket.emit("error", "Message too long (max 1000 characters)");
+        return;
+      }
+
+      // Create message object
+      const message: Message = {
+        id: uuidv4(),
+        username,
+        text: text.trim(),
+        timestamp: Date.now(),
+      };
+
+      console.log(`Message from ${username}: ${text.trim()}`);
+
+      // Add to message buffer
+      addMessageToBuffer(message);
+
+      // Broadcast message to all clients
+      io.emit("new_message", message);
+    });
+
+    // Handle user disconnection
+    socket.on("disconnect", () => {
+      const username = socket.data.username;
+
+      if (username && users.has(socket.id)) {
+        console.log(`${username} left the chat`);
+
+        // Remove user from users map
+        users.delete(socket.id);
+
+        // Create and broadcast leave message
+        const leaveMessage: Message = {
           id: uuidv4(),
           username: "System",
-          text: `${username} joined the chat`,
+          text: `${username} left the chat`,
           timestamp: Date.now(),
-          messageType: "system",
-        });
-
-        await joinMessage.save();
-
-        // Broadcast join message
-        const joinMsgForClient: MessageType = {
-          id: joinMessage.id,
-          username: joinMessage.username,
-          text: joinMessage.text,
-          timestamp: joinMessage.timestamp,
         };
-        io.emit("new_message", joinMsgForClient);
 
-        // Send updated user list
-        const onlineUsers = await User.find({ isOnline: true }).select(
-          "username"
-        );
-        const userList = onlineUsers.map((user) => user.username);
-        io.emit("user_list", userList);
+        addMessageToBuffer(leaveMessage);
+        io.emit("new_message", leaveMessage);
 
-        // Clean up old messages (keep only last 100)
-        const messageCount = await Message.countDocuments();
-        if (messageCount > 100) {
-          const messagesToDelete = messageCount - 100;
-          const oldMessages = await Message.find()
-            .sort({ timestamp: 1 })
-            .limit(messagesToDelete)
-            .select("_id");
-
-          const idsToDelete = oldMessages.map((msg) => msg._id);
-          await Message.deleteMany({ _id: { $in: idsToDelete } });
-          console.log(`Cleaned up ${messagesToDelete} old messages`);
-        }
-      } catch (error) {
-        console.error("Error handling user join:", error);
+        // Send updated user list to remaining clients
+        io.emit("user_list", getOnlineUsers());
       }
     });
 
-    socket.on("message", async (text: string) => {
-      const username = socket.data.username;
-      if (!text?.trim() || !username) return;
-
-      try {
-        // Create and save message
-        const message = new Message({
-          id: uuidv4(),
-          username,
-          text: text.trim(),
-          timestamp: Date.now(),
-          messageType: "user",
-        });
-
-        await message.save();
-
-        // Broadcast message to all clients
-        const messageForClient: MessageType = {
-          id: message.id,
-          username: message.username,
-          text: message.text,
-          timestamp: message.timestamp,
-        };
-        io.emit("new_message", messageForClient);
-      } catch (error) {
-        console.error("Error saving message:", error);
-      }
+    // Handle connection errors
+    socket.on("error", (error) => {
+      console.error(`Socket error for ${socket.id}:`, error);
     });
+  });
 
-    socket.on("disconnect", async () => {
-      try {
-        // Find and update user as offline
-        const user = await User.findOneAndUpdate(
-          { socketId: socket.id },
-          {
-            isOnline: false,
-            lastSeen: new Date(),
-          },
-          { new: true }
-        );
-
-        if (user) {
-          const username = user.username;
-          console.log(`${username} disconnected`);
-
-          // Create and save leave message
-          const leaveMessage = new Message({
-            id: uuidv4(),
-            username: "System",
-            text: `${username} left the chat`,
-            timestamp: Date.now(),
-            messageType: "system",
-          });
-
-          await leaveMessage.save();
-
-          // Broadcast leave message
-          const leaveMsgForClient: MessageType = {
-            id: leaveMessage.id,
-            username: leaveMessage.username,
-            text: leaveMessage.text,
-            timestamp: leaveMessage.timestamp,
-          };
-          io.emit("new_message", leaveMsgForClient);
-
-          // Send updated user list
-          const onlineUsers = await User.find({ isOnline: true }).select(
-            "username"
-          );
-          const userList = onlineUsers.map((user) => user.username);
-          io.emit("user_list", userList);
-        }
-      } catch (error) {
-        console.error("Error handling user disconnect:", error);
-      }
-    });
+  // Global error handling
+  io.on("connect_error", (error) => {
+    console.error("Connection error:", error);
   });
 };
