@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { RootStackParamList } from '../types/types';
+import { validateUsername } from '../utils';
 
 export default function UsernameScreen({
   navigation,
@@ -21,12 +22,12 @@ export default function UsernameScreen({
   const [isFocused, setIsFocused] = useState(false);
 
   const handleSubmit = () => {
-    if (username.trim().length >= 2) {
+    if (validateUsername(username)) {
       navigation.replace('chat', { username: username.trim() });
     }
   };
 
-  const isValid = username.trim().length >= 2;
+  const isValid = validateUsername(username);
 
   return (
     <View className="flex-1 bg-gray-900">
@@ -120,7 +121,7 @@ export default function UsernameScreen({
                 >
                   {isValid
                     ? '✓ Perfect! This username looks great'
-                    : 'Username must be at least 2 characters long'}
+                    : 'Username must be 2-30 characters long'}
                 </Text>
               )}
 
