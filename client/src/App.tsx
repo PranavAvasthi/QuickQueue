@@ -1,19 +1,23 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import { Text, View } from 'react-native';
+import 'react-native-reanimated';
+import 'react-native-worklets';
+import React from 'react';
+import WelcomeScreen from './screens/WelcomeScreen';
 import '../global.css';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { NavigationContainer } from '@react-navigation/native';
+
+export type RootStackParamList = {
+  welcome: undefined;
+};
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
-    <View className="flex-1 items-center justify-center bg-white">
-      <Text className="text-xl font-bold text-green-500">
-        Nativewind Setup
-      </Text>
-    </View>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="welcome" component={WelcomeScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
