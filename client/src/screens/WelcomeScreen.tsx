@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../App';
+import { RootStackParamList } from '../types/types';
 
 export default function WelcomeScreen({
   navigation,
