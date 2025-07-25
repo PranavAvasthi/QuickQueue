@@ -1,4 +1,4 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+This is the **React Native** frontend client for QuickQueue, a real-time group chat application built using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
 # Getting Started
 
